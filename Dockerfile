@@ -1,34 +1,39 @@
-# Use Python 3.12 slim image for small footprint
-FROM python:3.12-slim
+# Frontend service - builds and serves the React app
 
-# Install system dependencies needed for some packages
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    gcc \
-    g++ \
-    gfortran \
-    libopenblas-dev \
-    liblapack-dev \
-    && rm -rf /var/lib/apt/lists/*
+# Stage 1: Generate frontend from template and build for production
+FROM node:18-alpine AS builder
 
-# Set working directory
 WORKDIR /app
 
-# Copy requirements first (for better Docker caching)
-COPY requirements.txt .
+# Install bash (Alpine uses sh by default)
+RUN apk add --no-cache bash
 
-# Upgrade pip and install dependencies
-RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+# Copy the create-frontend.sh script
+COPY create-frontend.sh .
 
-# Copy entire application
-COPY . .
+# Make sure it's executable and run it with bash explicitly
+RUN bash -x create-frontend.sh
 
-# Ensure directory exists for ChromaDB
-RUN mkdir -p /app/ai_memory
+# Build the React app for production
+WORKDIR /app/web-ui
+RUN npm install && npm run build
+
+# Stage 2: Serve the built frontend with a lightweight server
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install serve to run the frontend
+RUN npm install -g serve
+
+# Copy the built app from the builder stage
+COPY --from=builder /app/web-ui/build ./build
 
 # Expose port
-EXPOSE 8000
+EXPOSE 3000
 
-# Run the application
-CMD ["python", "app.py"]
+# Set environment variables for frontend
+ENV REACT_APP_API_URL=${REACT_APP_API_URL:-http://localhost:8000}
+
+# Serve the app
+CMD ["serve", "-s", "build", "-l", "3000"]

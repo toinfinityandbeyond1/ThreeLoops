@@ -869,7 +869,6 @@ echo "To get started:"
 echo "  1. cd web-ui"
 echo "  2. npm install"
 echo "  3. npm start"
-EOF
 
 # Make the script executable
 chmod +x create-frontend.sh

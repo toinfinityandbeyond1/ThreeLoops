@@ -5,12 +5,14 @@ FROM node:18-alpine AS builder
 
 WORKDIR /app
 
+# Install bash (Alpine uses sh by default)
+RUN apk add --no-cache bash
+
 # Copy the create-frontend.sh script
 COPY create-frontend.sh .
 
-# Copy requirements.txt (needed to extract package structure if any)
-# Execute the frontend generation script
-RUN chmod +x create-frontend.sh && ./create-frontend.sh
+# Make sure it's executable and run it with bash explicitly
+RUN bash -x create-frontend.sh
 
 # Build the React app for production
 WORKDIR /app/web-ui

@@ -6,6 +6,7 @@ Provides REST endpoints and WebSocket streaming for the web UI
 import json
 import asyncio
 from datetime import datetime
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -13,8 +14,27 @@ import uvicorn
 import threading
 import time
 
-# Initialize FastAPI app
-app = FastAPI(title="Autonomous AI Server", version="1.0.0")
+# Global event loop (will be set during startup)
+event_loop = None
+
+# Lifespan context to capture the event loop
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Capture the event loop when the app starts"""
+    global event_loop
+    event_loop = asyncio.get_event_loop()
+    print("[Server] Event loop captured for thread-safe logging")
+    
+    # Startup logic
+    start_log_listener()
+    
+    yield
+    
+    # Shutdown logic
+    print("[Server] Shutting down")
+
+# Initialize FastAPI app with lifespan
+app = FastAPI(title="Autonomous AI Server", version="1.0.0", lifespan=lifespan)
 
 # Enable CORS for localhost frontend
 app.add_middleware(
@@ -68,9 +88,16 @@ manager = ConnectionManager()
 def start_log_listener():
     """Add listener to AI's cognitive log for broadcasting to WebSocket clients"""
     if ai and ai.log:
-        ai.log.add_listener(lambda record: asyncio.create_task(
-            manager.broadcast({"type": "log", "data": record})
-        ))
+        def broadcast_log(record):
+            """Thread-safe broadcast to WebSocket clients"""
+            if event_loop and event_loop.is_running():
+                # Schedule the coroutine on the main event loop
+                asyncio.run_coroutine_threadsafe(
+                    manager.broadcast({"type": "log", "data": record}),
+                    event_loop
+                )
+        
+        ai.log.add_listener(broadcast_log)
 
 # ========================
 # REST API ENDPOINTS
@@ -370,10 +397,7 @@ def run_server(ai_instance, port=8000):
     global ai
     ai = ai_instance
     
-    # Start log listener
-    start_log_listener()
-    
-    # Run uvicorn server
+    # Run uvicorn server (lifespan will handle log listener startup)
     uvicorn.run(app, host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
